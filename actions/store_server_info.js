@@ -216,7 +216,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -327,15 +327,20 @@ module.exports = {
 
   async action(cache) {
     const data = cache.actions[cache.index];
-    const server = parseInt(data.server, 10);
-    const varName = this.evalMessage(data.varName, cache);
+    const targetServer = await this.getServerFromData(data.server, data.varName, cache);
+
+    if (!targetServer) {
+      return this.callNextAction(cache);
+    }
+
+    const fetchMembers = async (withPresences = false) => {
+      if (targetServer.memberCount !== targetServer.members.cache.size) {
+        await targetServer.members.fetch({ withPresences });
+      }
+    }
+
     const info = parseInt(data.info, 10);
-    const targetServer = this.getServer(server, varName, cache);
-    if (!targetServer) return this.callNextAction(cache);
-    const fetchMembers = async (withPresences = false) =>
-      targetServer.memberCount !== targetServer.members.cache.size
-        ? await targetServer.members.fetch({ withPresences })
-        : null;
+
     let result;
     switch (info) {
       case 0:
@@ -418,19 +423,19 @@ module.exports = {
         break;
       case 26:
         await fetchMembers(true);
-        result = targetServer.members.cache.filter((m) => m.user?.presence?.status === "dnd").size;
+        result = targetServer.members.cache.filter((m) => m.presence?.status === "dnd").size;
         break;
       case 27:
         await fetchMembers(true);
-        result = targetServer.members.cache.filter((m) => m.user?.presence?.status === "online").size;
+        result = targetServer.members.cache.filter((m) => m.presence?.status === "online").size;
         break;
       case 28:
         await fetchMembers(true);
-        result = targetServer.members.cache.filter((m) => m.user?.presence?.status === "offline").size;
+        result = targetServer.members.cache.filter((m) => m.presence?.status === "offline").size;
         break;
       case 29:
         await fetchMembers(true);
-        result = targetServer.members.cache.filter((m) => m.user?.presence?.status === "idle").size;
+        result = targetServer.members.cache.filter((m) => m.presence?.status === "idle").size;
         break;
       case 30:
         result = targetServer.members.cache.filter((m) => m.user?.bot).size;
@@ -496,11 +501,13 @@ module.exports = {
       default:
         break;
     }
+
     if (result !== undefined) {
       const storage = parseInt(data.storage, 10);
       const varName2 = this.evalMessage(data.varName2, cache);
       this.storeValue(result, storage, varName2, cache);
     }
+
     this.callNextAction(cache);
   },
 

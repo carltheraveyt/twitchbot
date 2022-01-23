@@ -81,7 +81,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -147,12 +147,10 @@ module.exports = {
   // so be sure to provide checks for variable existence.
   //---------------------------------------------------------------------
 
-  action(cache) {
+  async action(cache) {
     const data = cache.actions[cache.index];
 
-    const threadVar = parseInt(data.thread, 10);
-    const threadVarName = this.evalMessage(data.threadVarName, cache);
-    const targetChannel = this.getChannel(threadVar, threadVarName, cache);
+    const targetChannel = await this.getChannelFromData(data.thread, data.threadVarName, cache);
 
     if (!targetChannel) {
       this.callNextAction(cache);

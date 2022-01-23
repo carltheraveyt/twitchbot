@@ -5,7 +5,7 @@ module.exports = {
   // This is the name of the action displayed in the editor.
   //---------------------------------------------------------------------
 
-  name: "Action Anchor",
+  name: "Timeout Member",
 
   //---------------------------------------------------------------------
   // Action Section
@@ -13,7 +13,7 @@ module.exports = {
   // This is the section the action will fall into.
   //---------------------------------------------------------------------
 
-  section: "Other Stuff",
+  section: "Member Control",
 
   //---------------------------------------------------------------------
   // Action Subtitle
@@ -22,7 +22,7 @@ module.exports = {
   //---------------------------------------------------------------------
 
   subtitle(data, presets) {
-    return `${data.anchorName}`;
+    return `${presets.getMemberText(data.member, data.varName)}`;
   },
 
   //---------------------------------------------------------------------
@@ -45,7 +45,7 @@ module.exports = {
   // are also the names of the fields stored in the action's JSON data.
   //---------------------------------------------------------------------
 
-  fields: ["anchorName"],
+  fields: ["member", "varName", "time", "reason"],
 
   //---------------------------------------------------------------------
   // Command HTML
@@ -60,8 +60,19 @@ module.exports = {
 
   html(isEvent, data) {
     return `
-<span class="dbminputlabel">Anchor Name</span><br>
-<input id="anchorName" class="round" type="text">`;
+<member-input dropdownLabel="Member" selectId="member" variableContainerId="varNameContainer" variableInputId="varName"></member-input>
+
+<br><br><br>
+
+<div style="padding-top: 8px;">
+  <span class="dbminputlabel">Time</span><br>
+  <input id="time" class="round" placeholder="Insert the time in seconds here..." type="text">
+</div>
+
+<div style="padding-top: 16px;">
+  <span class="dbminputlabel">Reason</span><br>
+  <textarea id="reason" class="dbm_monospace" rows="5" placeholder="Insert reason here..." style="white-space: nowrap; resize: none;"></textarea>
+</div>`;
   },
 
   //---------------------------------------------------------------------
@@ -82,28 +93,25 @@ module.exports = {
   // so be sure to provide checks for variable existence.
   //---------------------------------------------------------------------
 
-  action(cache) {
-    this.callNextAction(cache);
-  },
+  async action(cache) {
+    const data = cache.actions[cache.index];
+    const member = await this.getMemberFromData(data.member, data.varName, cache);
 
-  //---------------------------------------------------------------------
-  // Action Bot Mod Init
-  //
-  // An optional function for action mods. Upon the bot's initialization,
-  // each command/event's actions are iterated through. This is to
-  // initialize responses to interactions created within actions
-  // (e.g. buttons and select menus for Send Message).
-  //
-  // If an action provides inputs for more actions within, be sure
-  // to call the `this.prepareActions` function to ensure all actions are
-  // recursively iterated through.
-  //---------------------------------------------------------------------
+    let time = this.evalMessage(data.time, cache);
+    time = time ? Date.now() + time * 1000 : null;
+    const reason = this.evalMessage(data.reason, cache);
 
-  modInit(data, customData, index) {
-    if (!customData.anchors) {
-      customData.anchors = {};
+    if (Array.isArray(member)) {
+      this.callListFunc(member, "disableCommunicationUntil", [time, reason])
+        .then(() => this.callNextAction(cache))
+        .catch((err) => this.displayError(data, cache, err));
+    } else if (member?.disableCommunicationUntil) {
+      member.disableCommunicationUntil(time, reason)
+        .then(() => this.callNextAction(cache))
+        .catch((err) => this.displayError(data, cache, err));
+    } else {
+      this.callNextAction(cache);
     }
-    customData.anchors[data.anchorName] = index;
   },
 
   //---------------------------------------------------------------------

@@ -48,7 +48,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -113,11 +113,9 @@ module.exports = {
   // so be sure to provide checks for variable existence.
   //---------------------------------------------------------------------
 
-  action(cache) {
+  async action(cache) {
     const data = cache.actions[cache.index];
-    const storage = parseInt(data.list, 10);
-    const varName = this.evalMessage(data.varName, cache);
-    const list = this.getList(storage, varName, cache);
+    const list = await this.getListFromData(data.list, data.varName, cache);
     if (list?.length) {
       const varName2 = this.evalMessage(data.varName2, cache);
       const storage2 = parseInt(data.storage, 10);

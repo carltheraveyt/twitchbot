@@ -35,7 +35,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -61,12 +61,12 @@ module.exports = {
   html(isEvent, data) {
     return `
 <div style="width: 85%;">
-	Command/Event:<br>
+	<span class="dbminputlabel">Command/Event</span><br>
 	<select id="source" class="round">
 		<optgroup id="commands" label="Commands"></optgroup>
 		<optgroup id="events" label="Events"></optgroup>
 	</select><br>
-	Call Type:<br>
+	<span class="dbminputlabel">Call Type</span><br>
 	<select id="type" class="round">
 		<option value="true" selected>Wait for Completion</option>
 		<option value="false">Run Simultaneously</option>

@@ -93,7 +93,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -163,17 +163,19 @@ module.exports = {
   // so be sure to provide checks for variable existence.
   //---------------------------------------------------------------------
 
-  action(cache) {
+  async action(cache) {
     const data = cache.actions[cache.index];
     const DiscordJS = this.getDBM().DiscordJS;
-    const channel = parseInt(data.channel, 10);
-    const varName = this.evalMessage(data.varName, cache);
-    const info = parseInt(data.info, 10);
-    const targetChannel = this.getChannel(channel, varName, cache);
+
+    const targetChannel = await this.getChannelFromData(data.channel, data.varName, cache);
+
     if (!targetChannel) {
       this.callNextAction(cache);
       return;
     }
+
+    const info = parseInt(data.info, 10);
+
     let result;
     switch (info) {
       case 0:

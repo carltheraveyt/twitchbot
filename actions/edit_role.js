@@ -35,7 +35,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -123,7 +123,7 @@ module.exports = {
   // so be sure to provide checks for variable existence.
   //---------------------------------------------------------------------
 
-  action(cache) {
+  async action(cache) {
     const data = cache.actions[cache.index];
     const reason = this.evalMessage(data.reason, cache);
 
@@ -144,9 +144,7 @@ module.exports = {
       roleData.mentionable = data.mentionable === "true";
     }
 
-    const storage = parseInt(data.storage, 10);
-    const varName = this.evalMessage(data.varName, cache);
-    const role = this.getRole(storage, varName, cache);
+    const role = await this.getRoleFromData(data.storage, data.varName, cache);
 
     if (Array.isArray(role)) {
       this.callListFunc(role, "edit", [roleData, reason]).then(() => this.callNextAction(cache));

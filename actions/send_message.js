@@ -64,7 +64,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -560,13 +560,16 @@ module.exports = {
   // so be sure to provide checks for variable existence.
   //---------------------------------------------------------------------
 
-  action(cache) {
+  async action(cache) {
     const data = cache.actions[cache.index];
+
     const channel = parseInt(data.channel, 10);
     const message = data.message;
-    if (channel === undefined || message === undefined) return;
-    const varName = this.evalMessage(data.varName, cache);
-    let target = this.getSendReplyTarget(channel, varName, cache);
+    if (data.channel === undefined || message === undefined) {
+      return;
+    }
+
+    let target = await this.getSendReplyTarget(channel, this.evalMessage(data.varName, cache), cache);
 
     let messageOptions = {};
 
@@ -591,7 +594,7 @@ module.exports = {
         }
       }
     }
-    
+
 
     const content = this.evalMessage(message, cache);
     if (content) {
@@ -632,18 +635,18 @@ module.exports = {
         }
 
         if (embedData.author) {
-          embed.setAuthor(
-            this.evalMessage(embedData.author, cache),
-            embedData.authorIcon ? this.evalMessage(embedData.authorIcon, cache) : null,
-            embedData.authorUrl ? this.evalMessage(embedData.authorUrl, cache) : null
-          );
+          embed.setAuthor({
+            name: this.evalMessage(embedData.author, cache),
+            iconURL: embedData.authorIcon ? this.evalMessage(embedData.authorIcon, cache) : null,
+            url: embedData.authorUrl ? this.evalMessage(embedData.authorUrl, cache) : null,
+          });
         }
 
         if (embedData.footerText) {
-          embed.setFooter(
-            this.evalMessage(embedData.footerText, cache),
-            embedData.footerIconUrl ? this.evalMessage(embedData.footerIconUrl, cache) : null
-          );
+          embed.setFooter({
+            text: this.evalMessage(embedData.footerText, cache),
+            iconURL: embedData.footerIconUrl ? this.evalMessage(embedData.footerIconUrl, cache) : null,
+          });
         }
 
         messageOptions.embeds.push(embed);
@@ -744,7 +747,12 @@ module.exports = {
       }
     }
 
+    let defaultResultMsg = null;
     const onComplete = (resultMsg) => {
+      if (defaultResultMsg) {
+        resultMsg ??= defaultResultMsg;
+      }
+
       if (resultMsg) {
         const varName2 = this.evalMessage(data.varName2, cache);
         const storage = parseInt(data.storage, 10);
@@ -766,6 +774,8 @@ module.exports = {
             }
           });
         }
+      } else {
+        this.callNextAction(cache);
       }
     };
 
@@ -788,10 +798,21 @@ module.exports = {
     }
 
     else if (isEdit === 2 && cache?.interaction?.update) {
-      cache.interaction
-        .update(messageOptions)
-        .then(onComplete)
-        .catch((err) => this.displayError(data, cache, err));
+      let promise = null;
+
+      defaultResultMsg = cache.interaction?.message;
+
+      if (cache.interaction?.replied && cache.interaction?.editReply) {
+        promise = cache.interaction.editReply(messageOptions);
+      } else {
+        promise = cache.interaction.update(messageOptions);
+      }
+      
+      if (promise) {
+        promise
+          .then(onComplete)
+          .catch((err) => this.displayError(data, cache, err));
+      }
     }
 
     else if (isEdit === 1 && target?.edit) {

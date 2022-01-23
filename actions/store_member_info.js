@@ -54,7 +54,9 @@ module.exports = {
       "Member Flags List",
       "Member Client Status",
       "Member Custom Status",
-      "Member Server Avatar URL"
+      "Member Server Avatar URL",
+      "Member Timed Out At",
+      "Member Timed Out Timestamp",
     ];
     return `${presets.getMemberText(data.member, data.varName)} - ${info[parseInt(data.info, 10)]}`;
   },
@@ -141,6 +143,12 @@ module.exports = {
       case 30:
         dataType = "Text";
         break;
+      case 31:
+        dataType = "Date";
+        break;
+      case 32:
+        dataType = "Timestamp";
+        break;
     }
     return [data.varName2, dataType];
   },
@@ -155,7 +163,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -220,6 +228,8 @@ module.exports = {
 		<option value="27">Member Permission List</option>
 		<option value="28">Member Flags List</option>
 		<option value="29">Member Client Status</option>
+		<option value="22">Member Timed Out At</option>
+		<option value="23">Member Timed Out Timestamp</option>
 	</select>
 </div>
 
@@ -248,14 +258,15 @@ module.exports = {
 
   async action(cache) {
     const data = cache.actions[cache.index];
-    const memberStorage = parseInt(data.member, 10);
-    const varName = this.evalMessage(data.varName, cache);
-    const info = parseInt(data.info, 10);
-    const member = this.getMember(memberStorage, varName, cache);
+    const member = await this.getMemberFromData(data.member, data.varName, cache);
+
     if (!member) {
       this.callNextAction(cache);
       return;
     }
+
+    const info = parseInt(data.info, 10);
+
     let result;
     switch (info) {
       case 0:
@@ -306,10 +317,12 @@ module.exports = {
       case 15:
         if (member.presence?.status) {
           const status = member.presence.status;
-          if (status === "online") result = "Online";
-          else if (status === "offline") result = "Offline";
-          else if (status === "idle") result = "Idle";
-          else if (status === "dnd") result = "Do Not Disturb";
+          switch(status) {
+            case "online": { result = "Online"; break; }
+            case "offline": { result = "Offline"; break; }
+            case "idle": { result = "Idle"; break; }
+            case "dnd": { result = "Do Not Disturb"; break; }
+          }
         }
         break;
       case 16:
@@ -360,14 +373,22 @@ module.exports = {
       case 31:
         result = member.displayAvatarURL({ dynamic: true, format: "png", size: 4096 });
         break;
+      case 32:
+        result = member.communicationDisabledUntil;
+        break;
+      case 33:
+        result = member.communicationDisabledUntilTimestamp;
+        break;
       default:
         break;
     }
+
     if (result !== undefined) {
       const storage = parseInt(data.storage, 10);
       const varName2 = this.evalMessage(data.varName2, cache);
       this.storeValue(result, storage, varName2, cache);
     }
+
     this.callNextAction(cache);
   },
 

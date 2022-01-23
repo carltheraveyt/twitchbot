@@ -47,7 +47,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -135,7 +135,10 @@ module.exports = {
       embed.setURL(this.evalMessage(data.url, cache));
     }
     if (data.author && data.authorIcon) {
-      embed.setAuthor(this.evalMessage(data.author, cache), this.evalMessage(data.authorIcon, cache));
+      embed.setAuthor({
+        name: this.evalMessage(data.author, cache),
+        iconURL: this.evalMessage(data.authorIcon, cache),
+      });
     }
     if (data.color) {
       embed.setColor(this.evalMessage(data.color, cache));

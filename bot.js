@@ -1,19 +1,20 @@
 /******************************************************
  * Discord Bot Maker Bot
- * Version 2.0.9
+ * Version 2.1.0
  * Robert Borghese
  ******************************************************/
 
 const DBM = {};
-DBM.version = "2.0.9";
+DBM.version = "2.1.0";
 
 const DiscordJS = (DBM.DiscordJS = require("discord.js"));
 
-if (DiscordJS.version < "13.3.0") {
+const requiredDjsVersion = "13.6.0";
+if (DiscordJS.version < requiredDjsVersion) {
   console.log(
-    'This version of Discord Bot Maker requires discord.js v13.3.0+.\nPlease use "Project > Module Manager" and "Project > Reinstall Node Modules" to update to discord.js v13.3.\n',
+    `This version of Discord Bot Maker requires discord.js ${requiredDjsVersion}+.\nPlease use "Project > Module Manager" and "Project > Reinstall Node Modules" to update to discord.js ${requiredDjsVersion}.\n`,
   );
-  throw new Error("Need discord.js v13.3 to run!!!");
+  throw new Error(`Need discord.js ${requiredDjsVersion} to run!!!`);
 }
 
 const noop = () => void 0;
@@ -37,6 +38,9 @@ const MsgType = {
   INVALID_SLASH_COMMAND_SERVER_ID: 9,
   DUPLICATE_BUTTON_ID: 10,
   DUPLICATE_SELECT_ID: 11,
+  TOO_MANY_SPACES_SLASH_NAME: 12,
+  SUB_COMMAND_ALREADY_EXISTS: 13,
+  SUB_COMMAND_GROUP_ALREADY_EXISTS: 14,
 
   MISSING_APPLICATION_COMMAND_ACCESS: 100,
   MISSING_MUSIC_MODULES: 101,
@@ -44,6 +48,9 @@ const MsgType = {
   MUTABLE_VOLUME_DISABLED: 200,
   ERROR_GETTING_YT_INFO: 201,
   ERROR_CREATING_AUDIO: 202,
+
+  MISSING_MEMBER_INTENT_FIND_USER_ID: 300,
+  CANNOT_FIND_USER_BY_ID: 301,
 };
 
 function PrintError(type) {
@@ -72,6 +79,18 @@ function PrintError(type) {
 
     case MsgType.DUPLICATE_SLASH_COMMAND: {
       warn(format('Slash command with name "%s" already exists!\nThis duplicate will be ignored.\n', arguments[1]));
+      break;
+    }
+    case MsgType.TOO_MANY_SPACES_SLASH_NAME: {
+      warn(format('Slash command with name "%s" has too many spaces!\nSlash command names may only contain a maximum of three different words.\n', arguments[1]));
+      break;
+    }
+    case MsgType.SUB_COMMAND_ALREADY_EXISTS: {
+      warn(format('Slash command with name "%s" cannot exist.\nIt requires the creation of a "sub-command group" called "%s",\nbut there\'s already a command with that name.', arguments[1], arguments[2]));
+      break;
+    }
+    case MsgType.SUB_COMMAND_GROUP_ALREADY_EXISTS: {
+      warn(format('Slash command with name "%s" cannot exist.\nThere is already a "sub-command group" with that name.\nThe "sub-command group" exists because of a command named something like: "%s _____"', arguments[1], arguments[1]));
       break;
     }
     case MsgType.INVALID_SLASH_NAME: {
@@ -169,6 +188,14 @@ function PrintError(type) {
     case MsgType.ERROR_CREATING_AUDIO: {
       warn(format('Error creating audio resource.\n%s', arguments[1]));
     }
+
+
+    case MsgType.MISSING_MEMBER_INTENT_FIND_USER_ID: {
+      warn(' - DBM Warning - \nFind User (by Name/ID) may freeze or error because\nthe bot has not enabled the Server Member Events Intent.')
+    }
+    case MsgType.CANNOT_FIND_USER_BY_ID: {
+      warn(format('Cannot find user by id: %s', arguments[1]));
+    }
   }
 }
 
@@ -237,6 +264,7 @@ Bot.initBot = function () {
   if (this.usePartials()) {
     options.partials = this.partials();
   }
+  this.hasMemberIntents = (options.intents & DiscordJS.Intents.FLAGS.GUILD_MEMBERS) !== 0;
   this.bot = new DiscordJS.Client(options);
 };
 
@@ -331,13 +359,22 @@ Bot.reformatCommands = function () {
           break;
         }
         case "4": {
-          const name = this.validateSlashCommandName(com.name);
-          if (name) {
-            if (this.$slash[name]) {
-              PrintError(MsgType.DUPLICATE_SLASH_COMMAND, name);
+          const names = this.validateSlashCommandName(com.name);
+          if (names) {
+            if (names.length > 3) {
+              PrintError(MsgType.TOO_MANY_SPACES_SLASH_NAME, com.name);
             } else {
-              this.$slash[name] = com;
-              this.applicationCommandData.push(this.createApiJsonFromCommand(com, name));
+              const keyName = names.join(" ");
+              if (this.$slash[keyName]) {
+                PrintError(MsgType.DUPLICATE_SLASH_COMMAND, keyName);
+              } else {
+                this.$slash[keyName] = com;
+                if (names.length === 1) {
+                  this.applicationCommandData.push(this.createApiJsonFromCommand(com, keyName));
+                } else {
+                  this.mergeSubCommandIntoCommandData(names, this.createApiJsonFromCommand(com, names[names.length - 1]));
+                }
+              }
             }
           } else {
             PrintError(MsgType.INVALID_SLASH_NAME, com.name);
@@ -398,7 +435,64 @@ Bot.createApiJsonFromCommand = function (com, name) {
   return result;
 };
 
+Bot.mergeSubCommandIntoCommandData = function (names, data) {
+  data.type = "SUB_COMMAND";
+
+  const baseName = names[0];
+  let baseCommand = this.applicationCommandData.find(data => data.name === baseName) ?? null;
+  if (baseCommand === null) {
+    baseCommand = {
+      name: baseName,
+      description: this.getNoDescriptionText(),
+      options: [],
+    };
+    this.applicationCommandData.push(baseCommand);
+  }
+
+  if (names.length === 2) {
+    if (baseCommand.options.find(d => d.name === data.name && d.type === "SUB_COMMAND_GROUP")) {
+      PrintError(MsgType.SUB_COMMAND_GROUP_ALREADY_EXISTS, names.join(" "));
+    } else {
+      baseCommand.options.push(data);
+    }
+  } else if (names.length >= 3) {
+    if (!baseCommand.options) {
+      baseCommand.options = [];
+    }
+
+    const groupName = names[1];
+    let baseGroup = baseCommand.options.find(option => option.name === groupName) ?? null;
+    if (baseGroup === null) {
+      baseGroup = {
+        name: groupName,
+        description: this.getNoDescriptionText(),
+        type: "SUB_COMMAND_GROUP",
+        options: [],
+      }
+      baseCommand.options.push(baseGroup);
+    } else if (baseGroup.type === "SUB_COMMAND") {
+      PrintError(MsgType.SUB_COMMAND_ALREADY_EXISTS, names.join(" "), `${names[0]} ${names[1]}`);
+      return;
+    }
+
+    baseGroup.options.push(data);
+  }
+};
+
 Bot.validateSlashCommandName = function (name) {
+  if (!name) {
+    return false;
+  }
+
+  const names = name
+    .split(/\s+/)
+    .map(name => this.validateSlashCommandParameterName(name))
+    .filter(name => typeof name === "string");
+
+  return names.length > 0 ? names : false;
+};
+
+Bot.validateSlashCommandParameterName = function (name) {
   if (!name) {
     return false;
   }
@@ -436,7 +530,7 @@ Bot.validateSlashCommandParameters = function (parameters, commandName) {
   const existingNames = {};
   for (let i = 0; i < parameters.length; i++) {
     const paramsData = parameters[i];
-    const name = this.validateSlashCommandName(paramsData.name);
+    const name = this.validateSlashCommandParameterName(paramsData.name);
     if (name) {
       if (!existingNames[name]) {
         existingNames[name] = true;
@@ -508,6 +602,7 @@ Bot.registerSelectMenuInteraction = function (interactionId, data) {
 
 Bot.initEvents = function () {
   this.bot.on("ready", this.onReady.bind(this));
+  this.bot.on("guildCreate", this.onServerJoin.bind(this));
   this.bot.on("messageCreate", this.onMessage.bind(this));
   this.bot.on("interactionCreate", this.onInteraction.bind(this));
   Events.registerEvents(this.bot);
@@ -542,6 +637,9 @@ Bot.registerApplicationCommands = function () {
     }
   }
 
+  this._slashCommandCreateType = slashType;
+  this._slashCommandServerList = Files.data.settings?.slashServers?.split?.(/[\n\r]+/) ?? [];
+
   switch (slashType) {
     case "all": {
       this.setAllServerCommands(this.applicationCommandData);
@@ -554,15 +652,30 @@ Bot.registerApplicationCommands = function () {
       break;
     }
     case "manual": {
-      const serverList = Files.data.settings?.slashServers?.split?.(/[\n\r]+/) ?? [];
-      this.setCertainServerCommands(this.applicationCommandData, serverList);
+      this.setCertainServerCommands(this.applicationCommandData, this._slashCommandServerList);
       this.setGlobalCommands([]);
       break;
     }
     case "manualglobal": {
-      const serverList = Files.data.settings?.slashServers?.split?.(/[\n\r]+/) ?? [];
-      this.setCertainServerCommands(this.applicationCommandData, serverList);
+      this.setCertainServerCommands(this.applicationCommandData, this._slashCommandServerList);
       this.setGlobalCommands(this.applicationCommandData);
+      break;
+    }
+  }
+};
+
+Bot.onServerJoin = function (guild) {
+  this.initializeCommandsForNewServer(guild);
+};
+
+Bot.initializeCommandsForNewServer = function (guild) {
+  switch (this._slashCommandCreateType) {
+    case "all":
+    case "manual":
+    case "manualglobal": {
+      if (this._slashCommandCreateType === "all" || this._slashCommandServerList.includes(guild.id)) {
+        this.setCommandsForServer(guild, this.applicationCommandData, true);
+      }
       break;
     }
   }
@@ -734,17 +847,13 @@ Bot.checkIncludes = function (msg) {
   const icds_len = icds.length;
   for (let i = 0; i < icds_len; i++) {
     if (!icds[i]?.name) continue;
-    if (text.match(new RegExp("\\b" + icds[i].name + "\\b", "i"))) {
-      Actions.preformActionsFromMessage(msg, icds[i]);
-    } else if (icds[i]._aliases) {
-      const aliases = icds[i]._aliases;
-      const aliases_len = aliases.length;
-      for (let j = 0; j < aliases_len; j++) {
-        if (text.match(new RegExp("\\b" + aliases[j] + "\\b", "i"))) {
-          Actions.preformActionsFromMessage(msg, icds[i]);
-          break;
-        }
+    if (icds[i]._aliases) {
+      const words = [icds[i].name].concat(icds[i]._aliases);
+      if (text.match(new RegExp("\\b(?:" + words.join("|") + ")\\b", "i"))) {
+        Actions.preformActionsFromMessage(msg, icds[i]);
       }
+    } else if (text.match(new RegExp("\\b" + icds[i].name + "\\b", "i"))) {
+      Actions.preformActionsFromMessage(msg, icds[i]);
     }
   }
 };
@@ -794,13 +903,32 @@ Bot.onInteraction = function (interaction) {
 };
 
 Bot.onSlashCommandInteraction = function (interaction) {
-  const interactionName = interaction.commandName;
+  let interactionName = interaction.commandName;
+
+  const group = interaction.options.getSubcommandGroup(false);
+  if (group) {
+    interactionName += " " + group;
+  }
+
+  const sub = interaction.options.getSubcommand(false);
+  if (sub) {
+    interactionName += " " + sub;
+  }
+
   if (this.$slash[interactionName]) {
     Actions.preformActionsFromInteraction(interaction, this.$slash[interactionName], true);
   }
 };
 
 Bot.onContextMenuInteraction = function (interaction) {
+  if (interaction.isUserContextMenu()) {
+    this.onUserContextMenuInteraction(interaction);
+  } else if (interaction.isMessageContextMenu()) {
+    this.onMessageContextMenuInteraction(interaction);
+  }
+};
+
+Bot.onUserContextMenuInteraction = function (interaction) {
   const interactionName = interaction.commandName;
   if (this.$user[interactionName]) {
     if (interaction.guild) {
@@ -808,13 +936,25 @@ Bot.onContextMenuInteraction = function (interaction) {
         interaction._targetMember = member;
         Actions.preformActionsFromInteraction(interaction, this.$user[interactionName], true);
       }).catch(console.error);
+    } else {
+      interaction._targetMember = interaction.targetUser;
+      Actions.preformActionsFromInteraction(interaction, this.$user[interactionName], true);
     }
-  } else if (this.$msge[interactionName]) {
-    if (interaction.channel) {
+  }
+};
+
+Bot.onMessageContextMenuInteraction = function (interaction) {
+  const interactionName = interaction.commandName;
+  if (this.$msge[interactionName]) {
+    const msg = interaction.targetMessage;
+    if (!(msg instanceof DiscordJS.Message) && interaction.channel) {
       interaction.channel.messages.fetch(interaction.targetId).then((message) => {
         interaction._targetMessage = message;
         Actions.preformActionsFromInteraction(interaction, this.$msge[interactionName], true);
       }).catch(console.error);
+    } else {
+      interaction._targetMessage = msg;
+      Actions.preformActionsFromInteraction(interaction, this.$msge[interactionName], true);
     }
   }
 };
@@ -1059,14 +1199,14 @@ Actions.eval = function (content, cache, logError = true) {
   if (msg) {
     user = msg.author;
     member = msg.member;
-    channel = msg.member;
+    channel = msg.channel;
     mentionedUser = msg.mentions.users.first() ?? "";
     mentionedChannel = msg.mentions.channels.first() ?? "";
   }
   if (interaction) {
     user = interaction.user;
     member = interaction.member;
-    channel = interaction.member;
+    channel = interaction.channel;
     if (interaction.options) {
       mentionedUser = interaction.options.resolved?.users?.first?.() ?? "";
       mentionedChannel = interaction.options.resolved?.channels?.first?.() ?? "";
@@ -1138,7 +1278,7 @@ Actions.modDirectories = function () {
 };
 
 Actions.preformActionsFromMessage = function (msg, cmd) {
-  if (this.checkConditions(msg.guild, msg.member, msg.author, cmd) && this.checkTimeRestriction(msg.author, cmd)) {
+  if (this.checkConditions(msg.guild, msg.member, msg.author, cmd) && this.checkTimeRestriction(msg.author, msg, cmd)) {
     this.invokeActions(msg, cmd.actions, cmd);
   }
 };
@@ -1147,7 +1287,7 @@ Actions.preformActionsFromInteraction = function (interaction, cmd, meta = null,
   const invalidPermissions = this.getInvalidPermissionsResponse();
   const invalidCooldown = this.getInvalidCooldownResponse();
   if (this.checkConditions(interaction.guild, interaction.member, interaction.user, cmd)) {
-    const timeRestriction = this.checkTimeRestriction(interaction.user, cmd, true);
+    const timeRestriction = this.checkTimeRestriction(interaction.user, interaction, cmd, true);
     if (timeRestriction === true) {
       this.invokeInteraction(interaction, cmd.actions, initialTempVars, meta === true ? cmd : meta);
     } else if (invalidCooldown) {
@@ -1191,7 +1331,7 @@ Actions.checkConditions = function (guild, member, user, cmd) {
   }
 };
 
-Actions.checkTimeRestriction = function (user, cmd, returnTimeString = false) {
+Actions.checkTimeRestriction = function (user, msgOrInteraction, cmd, returnTimeString = false) {
   if (!cmd._timeRestriction) return true;
   if (!user) return false;
   const mid = user.id;
@@ -1212,7 +1352,7 @@ Actions.checkTimeRestriction = function (user, cmd, returnTimeString = false) {
     } else {
       const remaining = cmd._timeRestriction - Math.floor(diff / 1000);
       const timeString = this.generateTimeString(remaining);
-      Events.callEvents("38", 1, 3, 2, false, "", cmd?.msg?.member, timeString);
+      Events.callEvents("38", 1, 3, 2, false, "", msgOrInteraction?.member, timeString);
       return returnTimeString ? timeString : false;
     }
   }
@@ -1370,6 +1510,13 @@ Actions.displayError = function (data, cache, err) {
 Actions.getParameterFromInteraction = function (interaction, name) {
   if (interaction?.options?.get) {
     const option = interaction.options.get(name.toLowerCase());
+    return this.getParameterFromParameterData(option);
+  }
+  return null;
+};
+
+Actions.getParameterFromParameterData = function (option) {
+  if (typeof option === "object") {
     switch (option?.type) {
       case "STRING":
       case "INTEGER":
@@ -1390,6 +1537,41 @@ Actions.getParameterFromInteraction = function (interaction, name) {
         return option.member ?? option.channel ?? option.role ?? option.user;
       }
     }
+  }
+  return null;
+};
+
+Actions.findMemberOrUserFromName = async function (name, server) {
+  if (!Bot.hasMemberIntents) {
+    PrintError(MsgType.MISSING_MEMBER_INTENT_FIND_USER_ID);
+  }
+  const user = Bot.bot.users.cache.find((user) => user.username === name);
+  if (user) {
+    const result = await server.members.fetch(user);
+    if (result) {
+      return result;
+    }
+  } else if (server) {
+    const allMembers = await server.members.fetch();
+    const member = allMembers.find((user) => user.username === name);
+    if (member) {
+      return member;
+    }
+  }
+  return null;
+};
+
+Actions.findMemberOrUserFromID = async function (id, server) {
+  if (!Bot.hasMemberIntents) {
+    PrintError(MsgType.MISSING_MEMBER_INTENT_FIND_USER_ID);
+  }
+  if (id) {
+    const result = await Bot.bot.users.fetch(id);
+    if (result) {
+      return result;
+    }
+  } else {
+    PrintError(MsgType.CANNOT_FIND_USER_BY_ID, id);
   }
   return null;
 };
@@ -1416,10 +1598,14 @@ Actions.getTargetFromVariableOrParameter = function (varType, varName, cache) {
     default:
       break;
   }
-  return false;
+  return null;
 };
 
-Actions.getSendTarget = function (type, varName, cache) {
+Actions.getSendTargetFromData = async function (typeData, varNameData, cache) {
+  return await this.getSendTarget(parseInt(typeData, 10), this.evalMessage(varNameData, cache), cache);
+};
+
+Actions.getSendTarget = async function (type, varName, cache) {
   const { interaction, msg, server } = cache;
   switch (type) {
     case 0:
@@ -1477,7 +1663,7 @@ Actions.getSendTarget = function (type, varName, cache) {
       break;
     case 100: {
       const searchValue = this.evalMessage(varName, cache);
-      const result = Bot.bot.users.cache.find((user) => user.username === searchValue);
+      const result = await this.findMemberOrUserFromName(searchValue, cache.server);
       if (result) {
         return result;
       }
@@ -1485,7 +1671,7 @@ Actions.getSendTarget = function (type, varName, cache) {
     }
     case 101: {
       const searchValue = this.evalMessage(varName, cache);
-      const result = Bot.bot.users.cache.get(searchValue);
+      const result = await this.findMemberOrUserFromID(searchValue, cache.server);
       if (result) {
         return result;
       }
@@ -1510,9 +1696,10 @@ Actions.getSendTarget = function (type, varName, cache) {
     default:
       return this.getTargetFromVariableOrParameter(type - 5, varName, cache);
   }
+  return null;
 };
 
-Actions.getSendReplyTarget = function (type, varName, cache) {
+Actions.getSendReplyTarget = async function (type, varName, cache) {
   const { interaction, msg, server } = cache;
   switch (type) {
     case 13:
@@ -1522,11 +1709,16 @@ Actions.getSendReplyTarget = function (type, varName, cache) {
       }
       break;
     default:
-      return this.getSendTarget(type, varName, cache);
+      return await this.getSendTarget(type, varName, cache);
   }
+  return null;
 };
 
-Actions.getMember = function (type, varName, cache) {
+Actions.getMemberFromData = async function (typeData, varNameData, cache) {
+  return await this.getMember(parseInt(typeData, 10), this.evalMessage(varNameData, cache), cache);
+};
+
+Actions.getMember = async function (type, varName, cache) {
   const { interaction, msg } = cache;
   switch (type) {
     case 0: {
@@ -1550,7 +1742,7 @@ Actions.getMember = function (type, varName, cache) {
       break;
     case 100: {
       const searchValue = this.evalMessage(varName, cache);
-      const result = Bot.bot.users.cache.find((user) => user.username === searchValue);
+      const result = await this.findMemberOrUserFromName(searchValue, cache.server);
       if (result) {
         return result;
       }
@@ -1558,7 +1750,7 @@ Actions.getMember = function (type, varName, cache) {
     }
     case 101: {
       const searchValue = this.evalMessage(varName, cache);
-      const result = Bot.bot.users.cache.get(searchValue);
+      const result = await this.findMemberOrUserFromID(searchValue, cache.server);
       if (result) {
         return result;
       }
@@ -1567,9 +1759,14 @@ Actions.getMember = function (type, varName, cache) {
     default:
       return this.getTargetFromVariableOrParameter(type - 2, varName, cache);
   }
+  return null;
 };
 
-Actions.getMessage = function (type, varName, cache) {
+Actions.getMessageFromData = async function (typeData, varNameData, cache) {
+  return await this.getMessage(parseInt(typeData, 10), this.evalMessage(varNameData, cache), cache);
+};
+
+Actions.getMessage = async function (type, varName, cache) {
   switch (type) {
     case 0:
       const msg = cache.getMessage();
@@ -1580,9 +1777,14 @@ Actions.getMessage = function (type, varName, cache) {
     default:
       return this.getTargetFromVariableOrParameter(type - 1, varName, cache);
   }
+  return null;
 };
 
-Actions.getServer = function (type, varName, cache) {
+Actions.getServerFromData = async function (typeData, varNameData, cache) {
+  return await this.getServer(parseInt(typeData, 10), this.evalMessage(varNameData, cache), cache);
+};
+
+Actions.getServer = async function (type, varName, cache) {
   const server = cache.server;
   switch (type) {
     case 0:
@@ -1609,9 +1811,14 @@ Actions.getServer = function (type, varName, cache) {
     default:
       return this.getTargetFromVariableOrParameter(type - 1, varName, cache);
   }
+  return null;
 };
 
-Actions.getRole = function (type, varName, cache) {
+Actions.getRoleFromData = async function (typeData, varNameData, cache) {
+  return await this.getRole(parseInt(typeData, 10), this.evalMessage(varNameData, cache), cache);
+};
+
+Actions.getRole = async function (type, varName, cache) {
   const { interaction, msg, server } = cache;
   switch (type) {
     case 0: {
@@ -1657,9 +1864,14 @@ Actions.getRole = function (type, varName, cache) {
     default:
       return this.getTargetFromVariableOrParameter(type - 3, varName, cache);
   }
+  return null;
 };
 
-Actions.getChannel = function (type, varName, cache) {
+Actions.getChannelFromData = async function (typeData, varNameData, cache) {
+  return await this.getChannel(parseInt(typeData, 10), this.evalMessage(varNameData, cache), cache);
+};
+
+Actions.getChannel = async function (type, varName, cache) {
   const { interaction, msg, server } = cache;
   switch (type) {
     case 0:
@@ -1715,9 +1927,14 @@ Actions.getChannel = function (type, varName, cache) {
     default:
       return this.getTargetFromVariableOrParameter(type - 3, varName, cache);
   }
+  return null;
 };
 
-Actions.getVoiceChannel = function (type, varName, cache) {
+Actions.getVoiceChannelFromData = async function (typeData, varNameData, cache) {
+  return await this.getVoiceChannel(parseInt(typeData, 10), this.evalMessage(varNameData, cache), cache);
+};
+
+Actions.getVoiceChannel = async function (type, varName, cache) {
   const { interaction, msg, server } = cache;
   switch (type) {
     case 0: {
@@ -1766,19 +1983,25 @@ Actions.getVoiceChannel = function (type, varName, cache) {
     default:
       return this.getTargetFromVariableOrParameter(type - 3, varName, cache);
   }
+  return null;
 };
 
-Actions.getAnyChannel = function (type, varName, cache) {
+Actions.getAnyChannel = async function (type, varName, cache) {
   switch (type) {
-    case 10: return this.getVoiceChannel(0, varName, cache);
-    case 11: return this.getVoiceChannel(1, varName, cache);
-    case 12: return this.getVoiceChannel(7, varName, cache);
-    case 13: return this.getVoiceChannel(2, varName, cache);
-    default: return this.getChannel(type, varName, cache);
+    case 10: return await this.getVoiceChannel(0, varName, cache);
+    case 11: return await this.getVoiceChannel(1, varName, cache);
+    case 12: return await this.getVoiceChannel(7, varName, cache);
+    case 13: return await this.getVoiceChannel(2, varName, cache);
+    default: return await this.getChannel(type, varName, cache);
   }
+  return null;
 };
 
-Actions.getList = function (type, varName, cache) {
+Actions.getListFromData = async function (typeData, varNameData, cache) {
+  return await this.getList(parseInt(typeData, 10), this.evalMessage(varNameData, cache), cache);
+};
+
+Actions.getList = async function (type, varName, cache) {
   const { interaction, msg, server } = cache;
   switch (type) {
     case 0:
@@ -2114,8 +2337,8 @@ Events.generateData = function () {
     ["channelDelete", 1, 0, 2, true, (arg1) => arg1.type === "GUILD_TEXT"],
     ["roleCreate", 1, 0, 2],
     ["roleDelete", 1, 0, 2],
-    ["guildBanAdd", 3, 0, 1],
-    ["guildBanRemove", 3, 0, 1],
+    ["guildBanAdd", 200, 0, 2],
+    ["guildBanRemove", 200, 0, 2],
     ["channelCreate", 1, 0, 2, true, (arg1) => arg1.type === "GUILD_VOICE"],
     ["channelDelete", 1, 0, 2, true, (arg1) => arg1.type === "GUILD_VOICE"],
     ["emojiCreate", 1, 0, 2],
@@ -2195,6 +2418,8 @@ Events.getObject = function (id, arg1, arg2) {
       return arg2.guild;
     case 100:
       return arg1.guildMember.guild;
+    case 200:
+      return arg1.user;
   }
 };
 

@@ -35,7 +35,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -97,7 +97,10 @@ module.exports = {
     const storage = parseInt(data.storage, 10);
     const varName = this.evalMessage(data.varName, cache);
     const embed = this.getVariable(storage, varName, cache);
-    embed?.setFooter?.(this.evalMessage(data.message, cache), this.evalMessage(data.footerIcon, cache));
+    embed?.setFooter?.({
+      text: this.evalMessage(data.message, cache),
+      iconURL: this.evalMessage(data.footerIcon, cache),
+    });
     this.callNextAction(cache);
   },
 

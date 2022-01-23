@@ -36,7 +36,7 @@ module.exports = {
   // This will make it so the patch version (0.0.X) is not checked.
   //---------------------------------------------------------------------
 
-  meta: { version: "2.0.9", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
+  meta: { version: "2.1.0", preciseCheck: true, author: null, authorUrl: null, downloadUrl: null },
 
   //---------------------------------------------------------------------
   // Action Fields
@@ -95,13 +95,9 @@ module.exports = {
     const data = cache.actions[cache.index];
     const status = ["online", "idle", "invisible", "dnd"][parseInt(data.status, 10)];
     if (status) {
-      botClient
-        .setStatus(status)
-        .then(() => this.callNextAction(cache))
-        .catch((err) => this.displayError(data, cache, err));
-    } else {
-      this.callNextAction(cache);
+      botClient.setStatus(status);
     }
+    this.callNextAction(cache);
   },
 
   //---------------------------------------------------------------------
